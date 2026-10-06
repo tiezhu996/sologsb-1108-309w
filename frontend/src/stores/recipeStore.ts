@@ -4,6 +4,8 @@ import { calculateCompensatedMinutes } from '../hooks/useTempCompensate'
 import type { DevRecipe } from '../types/dev-recipe'
 import type { Dilution } from '../types/developer'
 import type { PushPull } from '../types/dev-recipe'
+import type { PendingSuggestion } from '../types/calibration'
+import { useCalibrationStore } from './calibrationStore'
 
 type NewRecipe = Omit<DevRecipe, 'id' | 'schemaRev'>
 
@@ -39,10 +41,25 @@ export const useRecipeStore = defineStore('recipe', {
         this.loading = false
       }
     },
+    /** 新配方尚无实冲读数：同时建立待确认建议，等两条一致试片发布首版校准 */
     async addRecipe(payload: NewRecipe): Promise<number> {
-      const next = { ...payload, schemaRev: 2 }
-      const id = await db.recipes.add(plain(next))
-      await this.load()
+      const calibrationStore = useCalibrationStore()
+      const id = await db.transaction('rw', [db.recipes, db.suggestions], async () => {
+        const next = { ...payload, schemaRev: 3 }
+        const newId = await db.recipes.add(plain(next))
+        await db.suggestions.add(plain({
+          recipeId: newId,
+          status: 'pending',
+          pendingReason: 'awaiting-readings',
+          basedOnCalibrationId: null,
+          baseTempC: payload.tempC,
+          baseDevMinutes: payload.devMinutes,
+          calculatedAt: new Date().toISOString(),
+          schemaRev: 3
+        } satisfies PendingSuggestion))
+        return newId
+      })
+      await Promise.all([this.load(), calibrationStore.load()])
       return id
     },
     async updateNote(id: number, note: string): Promise<void> {

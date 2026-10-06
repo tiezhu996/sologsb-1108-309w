@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import StatBadge from '../components/common/StatBadge.vue'
 import TimeTempCurve from '../components/common/TimeTempCurve.vue'
 import PushPullTag from '../components/common/PushPullTag.vue'
 import { useRecipeFilter } from '../hooks/useRecipeFilter'
+import { useCalibrationStore } from '../stores/calibrationStore'
 import { useDeveloperStore } from '../stores/developerStore'
 import { useFilmStore } from '../stores/filmStore'
 import { useRecipeStore } from '../stores/recipeStore'
@@ -13,6 +15,8 @@ const filmStore = useFilmStore()
 const developerStore = useDeveloperStore()
 const recipeStore = useRecipeStore()
 const runStore = useRunStore()
+const calibrationStore = useCalibrationStore()
+const router = useRouter()
 const { filmId, dilution, pushPull, filteredRecipes, resetFilters } = useRecipeFilter()
 const selectedTemp = ref(20)
 
@@ -40,12 +44,33 @@ function recipeName(id: number): string {
   return `${filmName(recipe.filmId)} · ${developerName(recipe.developerId)}`
 }
 
+const REASON_HINTS: Record<string, string> = {
+  'developer-scrapped': '工作液报废',
+  'film-batch-changed': '胶片换批',
+  'awaiting-readings': '等待读数'
+}
+
+/** 待冲建议：有效在前、待确认在后，按重算时间倒序 */
+const suggestionList = computed(() => [...calibrationStore.suggestions]
+  .sort((a, b) => (a.status === b.status ? b.calculatedAt.localeCompare(a.calculatedAt) : a.status === 'active' ? -1 : 1))
+  .map((suggestion) => ({
+    suggestion,
+    recipe: recipeStore.recipes.find((item) => item.id === suggestion.recipeId),
+    label: recipeName(suggestion.recipeId)
+  }))
+  .filter((item) => item.recipe))
+
+function goRuns(): void {
+  void router.push('/runs')
+}
+
 onMounted(async () => {
   await Promise.all([
     filmStore.load(),
     developerStore.load(),
     recipeStore.load(),
-    runStore.load()
+    runStore.load(),
+    calibrationStore.load()
   ])
 })
 </script>
@@ -149,6 +174,37 @@ onMounted(async () => {
         <div class="panel recent-panel">
           <div class="panel__head">
             <div>
+              <h2>待冲建议</h2>
+              <p>校准版本发布后立即重算；报废或换批后先退回待确认。</p>
+            </div>
+            <button type="button" class="text-button" @click="goRuns">前往校准链</button>
+          </div>
+          <article
+            v-for="item in suggestionList"
+            :key="item.suggestion.recipeId"
+            class="run-brief suggestion-brief"
+            data-testid="suggestion-brief"
+            @click="goRuns"
+          >
+            <div class="run-brief__top">
+              <strong>{{ item.label }}</strong>
+              <span :class="['status-chip', item.suggestion.status === 'active' ? 'status--ok' : 'status--warning']">
+                {{ item.suggestion.status === 'active' ? '有效' : '待确认' }}
+              </span>
+            </div>
+            <div class="run-brief__meta suggestion-brief__params">
+              <span class="accent-number">{{ item.suggestion.baseTempC }}°C</span>
+              <span class="accent-number">{{ item.suggestion.baseDevMinutes.toFixed(2) }} 分钟</span>
+            </div>
+            <small v-if="item.suggestion.pendingReason" class="suggestion-brief__reason">
+              ⚠ {{ REASON_HINTS[item.suggestion.pendingReason] }}
+            </small>
+          </article>
+        </div>
+
+        <div class="panel recent-panel">
+          <div class="panel__head">
+            <div>
               <h2>最近冲洗</h2>
               <p>温度与结果形成下一批次的经验起点。</p>
             </div>
@@ -171,4 +227,19 @@ onMounted(async () => {
     </div>
   </section>
 </template>
+
+<style scoped>
+.suggestion-brief {
+  cursor: pointer;
+}
+
+.suggestion-brief__params .accent-number {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.suggestion-brief__reason {
+  color: #b5791f;
+}
+</style>
 

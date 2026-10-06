@@ -5,11 +5,13 @@ import { useRoute } from 'vue-router'
 import EmptyPanel from '../components/common/EmptyPanel.vue'
 import FilterBar from '../components/common/FilterBar.vue'
 import PushPullTag from '../components/common/PushPullTag.vue'
+import CalibrationChain from '../components/calibration/CalibrationChain.vue'
 import { useTempCompensate } from '../hooks/useTempCompensate'
 import { useDeveloperStore } from '../stores/developerStore'
 import { useFilmStore } from '../stores/filmStore'
 import { useRecipeStore } from '../stores/recipeStore'
 import { useRunStore } from '../stores/runStore'
+import { useCalibrationStore } from '../stores/calibrationStore'
 import type { TankType } from '../types/dev-run'
 
 interface FilterValue {
@@ -25,6 +27,7 @@ interface RunForm {
   tankType: TankType
   runDate: string
   result: string
+  stripDensity: number | null
 }
 
 const route = useRoute()
@@ -32,6 +35,7 @@ const filmStore = useFilmStore()
 const developerStore = useDeveloperStore()
 const recipeStore = useRecipeStore()
 const runStore = useRunStore()
+const calibrationStore = useCalibrationStore()
 const showForm = ref(false)
 const saving = ref(false)
 const today = new Date().toISOString().slice(0, 10)
@@ -56,7 +60,8 @@ const form = reactive<RunForm>({
   actualMinutes: 8,
   tankType: '双联罐',
   runDate: today,
-  result: '密度均匀，中间调细腻'
+  result: '密度均匀，中间调细腻',
+  stripDensity: 1.0
 })
 
 const selectedRecipe = computed(() => recipeStore.recipes.find((recipe) => recipe.id === form.recipeId))
@@ -111,6 +116,10 @@ async function submitRun(): Promise<void> {
     ElMessage.warning('请填写批次号、配方与结果评价')
     return
   }
+  if (form.stripDensity === null || Number.isNaN(form.stripDensity) || form.stripDensity <= 0) {
+    ElMessage.warning('请登记本次试片密度读数')
+    return
+  }
   saving.value = true
   const selectedDeveloper = developerStore.developers.find((item) => item.id === selectedRecipe.value?.developerId)
   const willExceedLimit = selectedDeveloper !== undefined
@@ -124,16 +133,18 @@ async function submitRun(): Promise<void> {
       actualMinutes: Number(form.actualMinutes),
       tankType: form.tankType,
       runDate: form.runDate,
-      result: form.result.trim()
+      result: form.result.trim(),
+      stripDensity: Math.round(Number(form.stripDensity) * 100) / 100
     })
-    await Promise.all([developerStore.load(), recipeStore.load()])
+    await Promise.all([developerStore.load(), recipeStore.load(), calibrationStore.load()])
     if (willExceedLimit) {
       ElMessage.warning('冲洗记录已保存，本次已超过显影液标称可冲上限，请评估后标记报废')
     } else {
-      ElMessage.success('冲洗记录已保存，显影液用量同步更新')
+      ElMessage.success('冲洗记录已保存，试片读数已进入校准链')
     }
     form.batchNo = `R-${today.replace(/-/g, '')}-${String(runStore.runs.length + 1).padStart(2, '0')}`
     form.result = ''
+    form.stripDensity = 1.0
     showForm.value = false
   } finally {
     saving.value = false
@@ -148,7 +159,7 @@ async function writeBack(recipeId?: number, runId?: number): Promise<void> {
 }
 
 onMounted(async () => {
-  await Promise.all([filmStore.load(), developerStore.load(), recipeStore.load(), runStore.load()])
+  await Promise.all([filmStore.load(), developerStore.load(), recipeStore.load(), runStore.load(), calibrationStore.load()])
   if (recipeStore.recipes[0]?.id !== undefined) {
     form.recipeId = recipeStore.recipes[0].id
   }
@@ -208,6 +219,18 @@ onMounted(async () => {
           <span>冲洗日期</span>
           <input v-model="form.runDate" data-testid="field-runDate" type="date" />
         </label>
+        <label>
+          <span>试片密度</span>
+          <input
+            v-model.number="form.stripDensity"
+            data-testid="field-stripDensity"
+            type="number"
+            min="0"
+            max="3"
+            step="0.01"
+            placeholder="光楔片选定级次读数"
+          />
+        </label>
         <label class="span-2">
           <span>结果评价</span>
           <input v-model="form.result" data-testid="field-result" type="text" placeholder="记录反差、灰雾与密度表现" />
@@ -235,6 +258,16 @@ onMounted(async () => {
       <div class="simple-stat"><span>回写配方</span><strong>{{ recipeStore.recipes.filter((item) => item.note).length }}</strong><small>条</small></div>
     </div>
 
+    <div class="calibration-section">
+      <div class="panel__head">
+        <div>
+          <h2>校准链版本发布</h2>
+          <p>乳剂批次 → 工作液 → 配方 → 实冲读数。同一配方两条读数相差不超过 0.15 才能发布；冲突保留两条由人工选定，不自动平均。</p>
+        </div>
+      </div>
+      <CalibrationChain />
+    </div>
+
     <FilterBar
       v-model="filterValue"
       :fields="[
@@ -260,6 +293,7 @@ onMounted(async () => {
           <div class="run-parameters">
             <span><small>实测温度</small><strong>{{ run.actualTempC }}°C</strong></span>
             <span><small>实际时间</small><strong>{{ run.actualMinutes }} 分钟</strong></span>
+            <span><small>试片密度</small><strong data-testid="run-stripDensity">{{ typeof run.stripDensity === 'number' ? run.stripDensity.toFixed(2) : '未登记' }}</strong></span>
             <span><small>罐型</small><strong>{{ run.tankType }}</strong></span>
           </div>
           <blockquote>{{ run.result }}</blockquote>
@@ -273,3 +307,9 @@ onMounted(async () => {
     <EmptyPanel v-else title="没有符合条件的冲洗记录" description="调整罐型、结果特点或关键字后重新查看。" />
   </section>
 </template>
+
+<style scoped>
+.calibration-section {
+  margin: 22px 0 6px;
+}
+</style>

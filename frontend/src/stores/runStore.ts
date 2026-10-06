@@ -23,18 +23,23 @@ export const useRunStore = defineStore('run', {
         this.loading = false
       }
     },
+    /** 实冲记录与显影液用量加卷同一事务：写入失败全部回滚，恢复原状态 */
     async addRun(payload: NewRun): Promise<number> {
-      const next = { ...payload, schemaRev: 2 }
-      const id = await db.runs.add(plain(next))
-      const recipe = await db.recipes.get(payload.recipeId)
-      if (recipe) {
-        const developer = await db.developers.get(recipe.developerId)
-        if (developer && developer.id !== undefined && developer.state !== '报废') {
-          await db.developers.update(developer.id, plain({ usedRolls: developer.usedRolls + 1 }))
+      return db.transaction('rw', [db.runs, db.recipes, db.developers], async () => {
+        const next = { ...payload, schemaRev: 3 }
+        const id = await db.runs.add(plain(next))
+        const recipe = await db.recipes.get(payload.recipeId)
+        if (recipe) {
+          const developer = await db.developers.get(recipe.developerId)
+          if (developer && developer.id !== undefined && developer.state !== '报废') {
+            await db.developers.update(developer.id, plain({ usedRolls: developer.usedRolls + 1 }))
+          }
         }
-      }
-      await this.load()
-      return id
+        return id
+      }).then(async (id) => {
+        await this.load()
+        return id
+      })
     },
     async writeBackNote(runId: number, recipeId: number): Promise<void> {
       const run = await db.runs.get(runId)

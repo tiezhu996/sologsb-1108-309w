@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { db, plain } from '../utils/db'
 import type { Developer } from '../types/developer'
 import { remainingRolls } from '../utils/ratio'
+import { useCalibrationStore } from './calibrationStore'
 
 type NewDeveloper = Omit<Developer, 'id' | 'schemaRev'>
 
@@ -29,7 +30,7 @@ export const useDeveloperStore = defineStore('developer', {
       }
     },
     async addDeveloper(payload: NewDeveloper): Promise<number> {
-      const next = { ...payload, schemaRev: 2 }
+      const next = { ...payload, schemaRev: 3 }
       const id = await db.developers.add(plain(next))
       await this.load()
       return id
@@ -41,9 +42,14 @@ export const useDeveloperStore = defineStore('developer', {
       await db.developers.update(id, plain({ usedRolls }))
       await this.load()
     },
+    /** 标记报废与待冲建议退回同一事务：写入失败则两者都恢复原状态 */
     async scrap(id: number): Promise<void> {
-      await db.developers.update(id, plain({ state: '报废' }))
-      await this.load()
+      const calibrationStore = useCalibrationStore()
+      await db.transaction('rw', [db.developers, db.recipes, db.suggestions], async () => {
+        await db.developers.update(id, plain({ state: '报废' }))
+        await calibrationStore.setbackByDeveloperScrap(id)
+      })
+      await Promise.all([this.load(), calibrationStore.load()])
     }
   }
 })

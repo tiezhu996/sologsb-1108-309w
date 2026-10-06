@@ -5,6 +5,7 @@ import { useDeveloperStore } from './stores/developerStore'
 import { useFilmStore } from './stores/filmStore'
 import { useRecipeStore } from './stores/recipeStore'
 import { useRunStore } from './stores/runStore'
+import { useCalibrationStore } from './stores/calibrationStore'
 import { downloadJson } from './utils/export'
 
 const route = useRoute()
@@ -12,6 +13,7 @@ const filmStore = useFilmStore()
 const developerStore = useDeveloperStore()
 const recipeStore = useRecipeStore()
 const runStore = useRunStore()
+const calibrationStore = useCalibrationStore()
 
 const navItems = [
   { path: '/', label: '参数速查' },
@@ -28,11 +30,13 @@ function isActive(path: string): boolean {
 function exportAll(): void {
   downloadJson(`gbfilmdev-backup-${new Date().toISOString().slice(0, 10)}.json`, {
     exportedAt: new Date().toISOString(),
-    schemaRev: 2,
+    schemaRev: 3,
     films: filmStore.films,
     developers: developerStore.developers,
     recipes: recipeStore.recipes,
-    runs: runStore.runs
+    runs: runStore.runs,
+    calibrations: calibrationStore.calibrations,
+    suggestions: calibrationStore.suggestions
   })
 }
 
@@ -41,7 +45,8 @@ onMounted(async () => {
     filmStore.load(),
     developerStore.load(),
     recipeStore.load(),
-    runStore.load()
+    runStore.load(),
+    calibrationStore.load()
   ])
 })
 </script>
