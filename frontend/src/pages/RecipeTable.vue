@@ -6,9 +6,11 @@ import PushPullTag from '../components/common/PushPullTag.vue'
 import TimeTempCurve from '../components/common/TimeTempCurve.vue'
 import { calculateCompensatedMinutes, useTempCompensate } from '../hooks/useTempCompensate'
 import { useRecipeFilter } from '../hooks/useRecipeFilter'
+import { useCalibrationStore } from '../stores/calibrationStore'
 import { useDeveloperStore } from '../stores/developerStore'
 import { useFilmStore } from '../stores/filmStore'
 import { useRecipeStore } from '../stores/recipeStore'
+import { comboKeyForRecipe } from '../utils/calibration'
 import type { Developer, Dilution } from '../types/developer'
 import type { DevRecipe, PushPull } from '../types/dev-recipe'
 
@@ -29,6 +31,7 @@ interface RecipeForm {
 const filmStore = useFilmStore()
 const developerStore = useDeveloperStore()
 const recipeStore = useRecipeStore()
+const calibrationStore = useCalibrationStore()
 const { filmId, dilution, pushPull, filteredRecipes, resetFilters } = useRecipeFilter()
 const showForm = ref(false)
 const saving = ref(false)
@@ -80,6 +83,10 @@ function suggestedFor(recipe: { devMinutes: number; tempC: number }): number {
   return suggest(recipe.devMinutes, actualTempC.value).minutes
 }
 
+function suggestionOf(recipe: DevRecipe) {
+  return calibrationStore.suggestionMap[comboKeyForRecipe(recipe)]
+}
+
 function pickCurveTemp(temp: number): void {
   actualTempC.value = temp
 }
@@ -128,7 +135,7 @@ async function submitRecipe(): Promise<void> {
 }
 
 onMounted(async () => {
-  await Promise.all([filmStore.load(), developerStore.load(), recipeStore.load()])
+  await Promise.all([filmStore.load(), developerStore.load(), recipeStore.load(), calibrationStore.load()])
   if (filmStore.films[0]?.id !== undefined) form.filmId = filmStore.films[0].id
   const usableDeveloper = developerStore.developers.find((item: Developer) => item.state !== '报废')
   if (usableDeveloper?.id !== undefined) form.developerId = usableDeveloper.id
@@ -288,7 +295,15 @@ onMounted(async () => {
                   <small>{{ developerLabel(recipe.developerId) }} · {{ recipe.dilution }}</small>
                   <em v-if="recipe.note">{{ recipe.note }}</em>
                 </td>
-                <td>{{ recipe.tempC }}°C / {{ recipe.devMinutes.toFixed(2) }} 分钟</td>
+                <td>
+                  {{ recipe.tempC }}°C / {{ recipe.devMinutes.toFixed(2) }} 分钟
+                  <small v-if="suggestionOf(recipe)?.state === '生效'" class="suggestion-line" data-testid="recipe-suggestion">
+                    待冲建议 {{ suggestionOf(recipe)?.minutes?.toFixed(2) }} 分钟
+                  </small>
+                  <small v-else class="suggestion-line suggestion-line--pending" data-testid="recipe-suggestion">
+                    待确认{{ suggestionOf(recipe)?.revertReason ? `（${suggestionOf(recipe)?.revertReason}）` : '' }}
+                  </small>
+                </td>
                 <td>
                   <strong class="accent-number">{{ suggestedFor(recipe).toFixed(2) }} 分钟</strong>
                   <small>{{ actualTempC }}°C 实测温度</small>
@@ -322,3 +337,14 @@ onMounted(async () => {
     </div>
   </section>
 </template>
+
+<style scoped>
+.suggestion-line {
+  color: #246c72;
+  font-weight: 650;
+}
+
+.suggestion-line--pending {
+  color: #8e581f;
+}
+</style>

@@ -4,6 +4,7 @@ import FilmStockList from '../pages/FilmStockList.vue'
 import DeveloperList from '../pages/DeveloperList.vue'
 import RecipeTable from '../pages/RecipeTable.vue'
 import DevRunList from '../pages/DevRunList.vue'
+import CalibrationChain from '../pages/CalibrationChain.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -13,6 +14,7 @@ const router = createRouter({
     { path: '/developers', name: 'developers', component: DeveloperList },
     { path: '/recipes', name: 'recipes', component: RecipeTable },
     { path: '/runs', name: 'runs', component: DevRunList },
+    { path: '/calibrations', name: 'calibrations', component: CalibrationChain },
     { path: '/:pathMatch(.*)*', redirect: '/' }
   ],
   scrollBehavior: () => ({ top: 0 })

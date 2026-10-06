@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
-import { db, plain } from '../utils/db'
+import { db, plain, SCHEMA_REV } from '../utils/db'
+import { revertSuggestionsToPending } from '../utils/chain'
 import type { Developer } from '../types/developer'
 import { remainingRolls } from '../utils/ratio'
 
@@ -29,7 +30,7 @@ export const useDeveloperStore = defineStore('developer', {
       }
     },
     async addDeveloper(payload: NewDeveloper): Promise<number> {
-      const next = { ...payload, schemaRev: 2 }
+      const next = { ...payload, schemaRev: SCHEMA_REV }
       const id = await db.developers.add(plain(next))
       await this.load()
       return id
@@ -42,7 +43,16 @@ export const useDeveloperStore = defineStore('developer', {
       await this.load()
     },
     async scrap(id: number): Promise<void> {
-      await db.developers.update(id, plain({ state: '报废' }))
+      try {
+        // 报废与待冲建议退回待确认在同一事务内完成，失败则整体回滚
+        await db.transaction('rw', [db.developers, db.suggestions], async () => {
+          await db.developers.update(id, plain({ state: '报废' }))
+          await revertSuggestionsToPending({ developerId: id }, '工作液报废')
+        })
+      } catch (error) {
+        await this.load()
+        throw error
+      }
       await this.load()
     }
   }

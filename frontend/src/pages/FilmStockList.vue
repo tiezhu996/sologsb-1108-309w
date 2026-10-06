@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute } from 'vue-router'
 import EmptyPanel from '../components/common/EmptyPanel.vue'
 import FilterBar from '../components/common/FilterBar.vue'
+import { useCalibrationStore } from '../stores/calibrationStore'
 import { useFilmStore } from '../stores/filmStore'
-import type { FilmFormat, FilmModel } from '../types/film-stock'
+import type { FilmFormat, FilmModel, FilmStock } from '../types/film-stock'
 
 interface FilterValue {
   keyword: string
@@ -24,6 +25,7 @@ interface FilmForm {
 
 const route = useRoute()
 const filmStore = useFilmStore()
+const calibrationStore = useCalibrationStore()
 const showForm = ref(false)
 const saving = ref(false)
 
@@ -112,6 +114,28 @@ async function submitFilm(): Promise<void> {
     showForm.value = false
   } finally {
     saving.value = false
+  }
+}
+
+async function changeBatch(film: FilmStock): Promise<void> {
+  if (film.id === undefined) return
+  try {
+    const { value } = await ElMessageBox.prompt(
+      `当前批号 ${film.emulsionNo}，换批后相关待冲建议将退回待确认。`,
+      '登记胶片换批',
+      {
+        confirmButtonText: '确认换批',
+        cancelButtonText: '取消',
+        inputPlaceholder: '输入新的乳剂批号',
+        inputValidator: (input: string) => (input.trim().length > 0 && input.trim() !== film.emulsionNo) || '请输入与当前不同的乳剂批号'
+      }
+    )
+    await filmStore.changeEmulsion(film.id, value.trim())
+    await calibrationStore.load()
+    ElMessage.success('已登记换批，相关待冲建议已退回待确认')
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return
+    ElMessage.error(error instanceof Error ? error.message : '换批失败，已恢复原状态')
   }
 }
 
@@ -208,9 +232,12 @@ onMounted(() => {
         <div class="entity-card__main">
           <div class="entity-card__title">
             <h2>{{ film.model }} · {{ film.format }}</h2>
-            <span class="status-chip" :class="stockStatus(film).className">
-              {{ stockStatus(film).label }}
-            </span>
+            <div class="film-card__actions">
+              <button type="button" class="text-button" data-testid="change-batch" @click="changeBatch(film)">换批</button>
+              <span class="status-chip" :class="stockStatus(film).className">
+                {{ stockStatus(film).label }}
+              </span>
+            </div>
           </div>
           <dl class="data-pairs">
             <div><dt>乳剂批号</dt><dd>{{ film.emulsionNo }}</dd></div>
@@ -224,3 +251,11 @@ onMounted(() => {
     <EmptyPanel v-else title="没有符合条件的胶片" description="改变画幅、有效期条件，或登记一个新乳剂批次。" />
   </section>
 </template>
+
+<style scoped>
+.film-card__actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+</style>

@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
-import { db, plain } from '../utils/db'
+import { db, plain, SCHEMA_REV } from '../utils/db'
+import { revertSuggestionsToPending } from '../utils/chain'
 import type { FilmStock } from '../types/film-stock'
 
 type NewFilm = Omit<FilmStock, 'id' | 'schemaRev'>
@@ -23,13 +24,26 @@ export const useFilmStore = defineStore('film', {
       }
     },
     async addFilm(payload: NewFilm): Promise<number> {
-      const next = { ...payload, schemaRev: 2 }
+      const next = { ...payload, schemaRev: SCHEMA_REV }
       const id = await db.films.add(plain(next))
       await this.load()
       return id
     },
     async changeRolls(id: number, rollsLeft: number): Promise<void> {
       await db.films.update(id, plain({ rollsLeft: Math.max(0, rollsLeft) }))
+      await this.load()
+    },
+    async changeEmulsion(id: number, emulsionNo: string): Promise<void> {
+      try {
+        // 换批与待冲建议退回待确认在同一事务内完成，失败则整体回滚
+        await db.transaction('rw', [db.films, db.suggestions], async () => {
+          await db.films.update(id, plain({ emulsionNo }))
+          await revertSuggestionsToPending({ filmId: id }, '胶片换批')
+        })
+      } catch (error) {
+        await this.load()
+        throw error
+      }
       await this.load()
     }
   }

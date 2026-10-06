@@ -3,6 +3,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import DilutionInput from '../components/common/DilutionInput.vue'
 import StatBadge from '../components/common/StatBadge.vue'
+import { useCalibrationStore } from '../stores/calibrationStore'
 import { useDeveloperStore } from '../stores/developerStore'
 import type { Developer, DeveloperCategory, DeveloperState, Dilution } from '../types/developer'
 import { calculateStockVolume, remainingRolls } from '../utils/ratio'
@@ -19,6 +20,7 @@ interface DeveloperForm {
 }
 
 const developerStore = useDeveloperStore()
+const calibrationStore = useCalibrationStore()
 const showForm = ref(false)
 const saving = ref(false)
 const form = reactive<DeveloperForm>({
@@ -66,8 +68,13 @@ async function submitDeveloper(): Promise<void> {
 
 async function scrapDeveloper(id?: number): Promise<void> {
   if (id === undefined) return
-  await developerStore.scrap(id)
-  ElMessage.success('该工作液已标记为报废')
+  try {
+    await developerStore.scrap(id)
+    await calibrationStore.load()
+    ElMessage.success('该工作液已标记为报废，相关待冲建议已退回待确认')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '报废失败，已恢复原状态')
+  }
 }
 
 onMounted(() => {

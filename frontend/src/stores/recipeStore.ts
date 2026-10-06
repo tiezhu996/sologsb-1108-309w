@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { db, plain } from '../utils/db'
+import { db, plain, SCHEMA_REV } from '../utils/db'
 import { calculateCompensatedMinutes } from '../hooks/useTempCompensate'
 import type { DevRecipe } from '../types/dev-recipe'
 import type { Dilution } from '../types/developer'
@@ -40,7 +40,7 @@ export const useRecipeStore = defineStore('recipe', {
       }
     },
     async addRecipe(payload: NewRecipe): Promise<number> {
-      const next = { ...payload, schemaRev: 2 }
+      const next = { ...payload, schemaRev: SCHEMA_REV }
       const id = await db.recipes.add(plain(next))
       await this.load()
       return id
